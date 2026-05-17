@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── PATS Design Tokens ─────────────────────────────────────────────────────── */
+:root {
+  --bg-base:        #000000;
+  --bg-surface:     #111111;
+  --bg-card:        #181818;
+  --bg-card-hover:  #1f1f1f;
+  --bg-input:       #1a1a1a;
+  --bg-overlay:     rgba(0, 0, 0, 0.85);
+
+  --border-subtle:  #1e1e1e;
+  --border-default: #2a2a2a;
+  --border-strong:  #3a3a3a;
+
+  --text-primary:   #f0f0f0;
+  --text-secondary: #888888;
+  --text-muted:     #444444;
+
+  --accent:         #6366f1;
+  --accent-dim:     rgba(99, 102, 241, 0.15);
+
+  --spine-line:     #222222;
+  --spine-dot:      #333333;
+  --now-red:        #ef4444;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #222; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #333; }
+
+/* ── Time spine ─────────────────────────────────────────────────────────────── */
+.spine-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid #333;
+  background: #000;
+  flex-shrink: 0;
+  z-index: 2;
+  position: relative;
+}
+
+.spine-dot-now {
+  border-color: #ef4444;
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239,68,68,0.5);
+}
+
+/* ── Overlay ─────────────────────────────────────────────────────────────────── */
+.overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.overlay-panel {
+  background: #181818;
+  border: 1px solid #2a2a2a;
+  border-radius: 18px;
+  width: 100%;
+  max-width: 440px;
+  padding: 24px;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Popover ─────────────────────────────────────────────────────────────────── */
+.popover {
+  position: absolute;
+  z-index: 40;
+  background: #181818;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+  padding: 14px;
+  width: 240px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+  animation: slideUp 0.15s ease;
+}
+
+/* ── Sidebar transition ──────────────────────────────────────────────────────── */
+.sidebar { transition: width 0.22s cubic-bezier(0.4,0,0.2,1); }
+
+/* ── Mobile ──────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .hide-mobile  { display: none !important; }
+  .full-mobile  { width: 100% !important; }
+}
