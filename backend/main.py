@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
+from decimal import Decimal
 
 from database import Base, engine, get_db
 from models import Course, CourseSection, Week, Assessment, Event, WeeklyKnowledge
@@ -17,14 +18,13 @@ from schemas import (
     CourseIn, CourseOut,
     SectionIn, SectionOut,
     WeekOut,
-    AssessmentIn, AssessmentOut,
+    AssessmentIn, AssessmentOut, AssessmentGradeIn,
     EventIn, EventOut,
     WeeklyKnowledgeIn, WeeklyKnowledgeOut,
 )
 
 app = FastAPI(title="PATS API")
 
-# Allow the frontend container to call the API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,13 +33,11 @@ app.add_middleware(
 )
 
 
-# ─── Startup: create tables + seed ───────────────────────────────────────────
+# ─── Startup ─────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 def startup():
-    """Create all tables, then seed if weeks table is empty."""
     Base.metadata.create_all(bind=engine)
-
     db = next(get_db())
     try:
         if db.query(Week).count() == 0:
@@ -49,9 +47,6 @@ def startup():
 
 
 def _seed(db: Session):
-    """Insert all weeks, the OOP course, sections, events, assessments, and weekly knowledge."""
-
-    # Weeks
     weeks_data = [
         (1,  "2026-05-11", "2026-05-17", False),
         (2,  "2026-05-18", "2026-05-24", False),
@@ -73,45 +68,27 @@ def _seed(db: Session):
         db.add(Week(week_number=wn, start_date=sd, end_date=ed, is_break=ib))
     db.flush()
 
-    # Course
     course = Course(
-        code="CST8132",
-        title="Object-Oriented Programming",
-        short_name="OOP",
-        color="#E63946",
-        professor="Howard Rosenblum / Todd Kelley",
-        credits=3,
+        code="CST8132", title="Object-Oriented Programming",
+        short_name="OOP", color="#E63946",
+        professor="Howard Rosenblum / Todd Kelley", credits=3,
     )
     db.add(course)
     db.flush()
 
-    # Sections
     theory = CourseSection(
-        course_id=course.course_id,
-        section_number="300",
-        type="THEORY",
-        weight_percent="50.00",
-        room="T334",
-        day_of_week="FRIDAY",
-        start_time="10:30",
-        end_time="12:30",
+        course_id=course.course_id, section_number="300", type="THEORY",
+        weight_percent="50.00", room="T334", day_of_week="FRIDAY",
+        start_time="10:30", end_time="12:30",
     )
     lab = CourseSection(
-        course_id=course.course_id,
-        section_number="301",
-        type="LAB",
-        weight_percent="50.00",
-        room="WB419",
-        day_of_week="MONDAY",
-        start_time="12:30",
-        end_time="14:30",
+        course_id=course.course_id, section_number="301", type="LAB",
+        weight_percent="50.00", room="WB419", day_of_week="MONDAY",
+        start_time="12:30", end_time="14:30",
     )
-    db.add(theory)
-    db.add(lab)
-    db.flush()
+    db.add(theory); db.add(lab); db.flush()
 
-    # Events — Theory (Friday)
-    theory_events = [
+    for st, et, wn in [
         ("2026-05-15 10:30:00-04", "2026-05-15 12:30:00-04", 1),
         ("2026-05-22 10:30:00-04", "2026-05-22 12:30:00-04", 2),
         ("2026-05-29 10:30:00-04", "2026-05-29 12:30:00-04", 3),
@@ -126,23 +103,12 @@ def _seed(db: Session):
         ("2026-08-07 10:30:00-04", "2026-08-07 12:30:00-04", 13),
         ("2026-08-14 10:30:00-04", "2026-08-14 12:30:00-04", 14),
         ("2026-08-21 10:30:00-04", "2026-08-21 12:30:00-04", 15),
-    ]
-    for st, et, wn in theory_events:
-        db.add(Event(
-            section_id=theory.section_id,
-            title="OOP Theory",
-            type="CLASS",
-            start_time=st,
-            end_time=et,
-            week_number=wn,
-            location="T334",
-            is_recurring=True,
-            recur_days="FRIDAY",
-            recur_end="2026-08-21",
-        ))
+    ]:
+        db.add(Event(section_id=theory.section_id, title="OOP Theory", type="CLASS",
+            start_time=st, end_time=et, week_number=wn, location="T334",
+            is_recurring=True, recur_days="FRIDAY", recur_end="2026-08-21"))
 
-    # Events — Lab (Monday)
-    lab_events = [
+    for st, et, wn in [
         ("2026-05-11 12:30:00-04", "2026-05-11 14:30:00-04", 1),
         ("2026-05-19 12:30:00-04", "2026-05-19 14:30:00-04", 2),
         ("2026-05-25 12:30:00-04", "2026-05-25 14:30:00-04", 3),
@@ -157,67 +123,31 @@ def _seed(db: Session):
         ("2026-08-03 12:30:00-04", "2026-08-03 14:30:00-04", 13),
         ("2026-08-10 12:30:00-04", "2026-08-10 14:30:00-04", 14),
         ("2026-08-17 12:30:00-04", "2026-08-17 14:30:00-04", 15),
-    ]
-    for st, et, wn in lab_events:
-        db.add(Event(
-            section_id=lab.section_id,
-            title="OOP Lab",
-            type="CLASS",
-            start_time=st,
-            end_time=et,
-            week_number=wn,
-            location="WB419",
-            is_recurring=True,
-            recur_days="MONDAY",
-            recur_end="2026-08-17",
-        ))
+    ]:
+        db.add(Event(section_id=lab.section_id, title="OOP Lab", type="CLASS",
+            start_time=st, end_time=et, week_number=wn, location="WB419",
+            is_recurring=True, recur_days="MONDAY", recur_end="2026-08-17"))
 
-    # Personal events
-    db.add(Event(
-        section_id=None,
-        title="Sleep",
-        type="PERSONAL",
-        start_time="2026-05-11 23:00:00-04",
-        end_time="2026-05-12 06:30:00-04",
-        is_recurring=True,
-        recur_days="MON,TUE,WED,THU,FRI,SAT,SUN",
-        recur_end="2026-08-24",
-    ))
-    db.add(Event(
-        section_id=None,
-        title="Gym",
-        type="PERSONAL",
-        start_time="2026-05-11 17:00:00-04",
-        end_time="2026-05-11 18:30:00-04",
-        is_recurring=True,
-        recur_days="MON,WED,FRI",
-        recur_end="2026-08-24",
-    ))
-
+    db.add(Event(section_id=None, title="Sleep", type="PERSONAL",
+        start_time="2026-05-11 23:00:00-04", end_time="2026-05-12 06:30:00-04",
+        is_recurring=True, recur_days="MON,TUE,WED,THU,FRI,SAT,SUN", recur_end="2026-08-24"))
+    db.add(Event(section_id=None, title="Gym", type="PERSONAL",
+        start_time="2026-05-11 17:00:00-04", end_time="2026-05-11 18:30:00-04",
+        is_recurring=True, recur_days="MON,WED,FRI", recur_end="2026-08-24"))
     db.flush()
 
-    # Assessments — Theory section
-    theory_assessments = [
-        ("Hybrid Activity 1", "QUIZ",       None,    2,  "1.00",  "2026-05-22 23:59:00-04"),
-        ("Hybrid Activity 2", "QUIZ",       None,    3,  "1.00",  "2026-05-29 23:59:00-04"),
-        ("Assignment 1",      "ASSIGNMENT", None,    7,  "10.00", None),
-        ("Midterm",           "MIDTERM",    None,    7,  "15.00", None),
-        ("Assignment 2",      "ASSIGNMENT", None,    11, "10.00", "2026-08-02 23:59:00-04"),
-        ("Final Exam",        "FINAL",      None,    15, "25.00", None),
-    ]
-    for title, atype, qtype, wn, wp, dd in theory_assessments:
-        db.add(Assessment(
-            section_id=theory.section_id,
-            title=title,
-            type=atype,
-            quiz_type=qtype,
-            week_number=wn,
-            weight_percent=wp,
-            due_date=dd,
-        ))
+    for title, atype, qtype, wn, wp, dd in [
+        ("Hybrid Activity 1", "QUIZ",       None, 2,  "1.00",  "2026-05-22 23:59:00-04"),
+        ("Hybrid Activity 2", "QUIZ",       None, 3,  "1.00",  "2026-05-29 23:59:00-04"),
+        ("Assignment 1",      "ASSIGNMENT", None, 7,  "10.00", None),
+        ("Midterm",           "MIDTERM",    None, 7,  "15.00", None),
+        ("Assignment 2",      "ASSIGNMENT", None, 11, "10.00", "2026-08-02 23:59:00-04"),
+        ("Final Exam",        "FINAL",      None, 15, "25.00", None),
+    ]:
+        db.add(Assessment(section_id=theory.section_id, title=title, type=atype,
+            quiz_type=qtype, week_number=wn, weight_percent=wp, due_date=dd))
 
-    # Assessments — Lab section
-    lab_assessments = [
+    for title, atype, wn, wp, dd in [
         ("Lab Exercise 1", "LAB",      3,  "4.00",  None),
         ("Lab Exercise 2", "LAB",      5,  "4.00",  None),
         ("Lab Exercise 3", "LAB",      6,  "4.00",  None),
@@ -225,35 +155,18 @@ def _seed(db: Session):
         ("Lab Exercise 5", "LAB",      10, "4.00",  "2026-07-29 13:30:00-04"),
         ("Lab Exercise 6", "LAB",      12, "4.00",  "2026-08-05 13:30:00-04"),
         ("Lab Exam (SBA)", "LAB_EXAM", 14, "10.00", "2026-08-12 13:30:00-04"),
-    ]
-    for title, atype, wn, wp, dd in lab_assessments:
-        db.add(Assessment(
-            section_id=lab.section_id,
-            title=title,
-            type=atype,
-            week_number=wn,
-            weight_percent=wp,
-            due_date=dd,
-        ))
+    ]:
+        db.add(Assessment(section_id=lab.section_id, title=title, type=atype,
+            week_number=wn, weight_percent=wp, due_date=dd))
 
-    # Weekly knowledge
-    knowledge_data = [
+    for wn, topics in [
         (1, [{"topic": "Multidimensional Arrays", "subtopics": ["2D arrays", "array traversal"]}]),
-        (2, [
-            {"topic": "Exception Handling", "subtopics": ["try/catch", "throw", "checked vs unchecked"]},
-            {"topic": "File I/O", "subtopics": ["FileReader", "BufferedWriter"]},
-        ]),
-        (3, [
-            {"topic": "Objects and Classes", "subtopics": ["encapsulation", "access modifiers"]},
-            {"topic": "Inheritance", "subtopics": ["extends", "super", "overriding"]},
-        ]),
-    ]
-    for wn, topics in knowledge_data:
-        db.add(WeeklyKnowledge(
-            course_id=course.course_id,
-            week_number=wn,
-            topics=topics,
-        ))
+        (2, [{"topic": "Exception Handling", "subtopics": ["try/catch", "throw", "checked vs unchecked"]},
+             {"topic": "File I/O", "subtopics": ["FileReader", "BufferedWriter"]}]),
+        (3, [{"topic": "Objects and Classes", "subtopics": ["encapsulation", "access modifiers"]},
+             {"topic": "Inheritance", "subtopics": ["extends", "super", "overriding"]}]),
+    ]:
+        db.add(WeeklyKnowledge(course_id=course.course_id, week_number=wn, topics=topics))
 
     db.commit()
 
@@ -262,9 +175,7 @@ def _seed(db: Session):
 
 @app.get("/api/weeks", response_model=List[WeekOut])
 def get_weeks(db: Session = Depends(get_db)):
-    """Return all 15 academic weeks."""
     return db.query(Week).order_by(Week.week_number).all()
-
 
 @app.get("/api/weeks/{week_number}", response_model=WeekOut)
 def get_week(week_number: int, db: Session = Depends(get_db)):
@@ -278,9 +189,7 @@ def get_week(week_number: int, db: Session = Depends(get_db)):
 
 @app.get("/api/courses", response_model=List[CourseOut])
 def get_courses(db: Session = Depends(get_db)):
-    """Return all courses."""
     return db.query(Course).order_by(Course.course_id).all()
-
 
 @app.get("/api/courses/{course_id}", response_model=CourseOut)
 def get_course(course_id: int, db: Session = Depends(get_db)):
@@ -289,15 +198,11 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Course not found")
     return course
 
-
 @app.post("/api/courses", response_model=CourseOut, status_code=201)
 def create_course(body: CourseIn, db: Session = Depends(get_db)):
     course = Course(**body.model_dump())
-    db.add(course)
-    db.commit()
-    db.refresh(course)
+    db.add(course); db.commit(); db.refresh(course)
     return course
-
 
 @app.put("/api/courses/{course_id}", response_model=CourseOut)
 def update_course(course_id: int, body: CourseIn, db: Session = Depends(get_db)):
@@ -306,30 +211,25 @@ def update_course(course_id: int, body: CourseIn, db: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail="Course not found")
     for k, v in body.model_dump().items():
         setattr(course, k, v)
-    db.commit()
-    db.refresh(course)
+    db.commit(); db.refresh(course)
     return course
-
 
 @app.delete("/api/courses/{course_id}", status_code=204)
 def delete_course(course_id: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.course_id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
-    db.delete(course)
-    db.commit()
+    db.delete(course); db.commit()
 
 
 # ─── Sections ────────────────────────────────────────────────────────────────
 
 @app.get("/api/sections", response_model=List[SectionOut])
 def get_sections(course_id: Optional[int] = None, db: Session = Depends(get_db)):
-    """Return all sections, optionally filtered by course_id."""
     q = db.query(CourseSection)
     if course_id:
         q = q.filter(CourseSection.course_id == course_id)
     return q.order_by(CourseSection.section_id).all()
-
 
 @app.get("/api/sections/{section_id}", response_model=SectionOut)
 def get_section(section_id: int, db: Session = Depends(get_db)):
@@ -338,15 +238,11 @@ def get_section(section_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Section not found")
     return s
 
-
 @app.post("/api/sections", response_model=SectionOut, status_code=201)
 def create_section(body: SectionIn, db: Session = Depends(get_db)):
     section = CourseSection(**body.model_dump())
-    db.add(section)
-    db.commit()
-    db.refresh(section)
+    db.add(section); db.commit(); db.refresh(section)
     return section
-
 
 @app.put("/api/sections/{section_id}", response_model=SectionOut)
 def update_section(section_id: int, body: SectionIn, db: Session = Depends(get_db)):
@@ -355,18 +251,15 @@ def update_section(section_id: int, body: SectionIn, db: Session = Depends(get_d
         raise HTTPException(status_code=404, detail="Section not found")
     for k, v in body.model_dump().items():
         setattr(s, k, v)
-    db.commit()
-    db.refresh(s)
+    db.commit(); db.refresh(s)
     return s
-
 
 @app.delete("/api/sections/{section_id}", status_code=204)
 def delete_section(section_id: int, db: Session = Depends(get_db)):
     s = db.query(CourseSection).filter(CourseSection.section_id == section_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Section not found")
-    db.delete(s)
-    db.commit()
+    db.delete(s); db.commit()
 
 
 # ─── Assessments ─────────────────────────────────────────────────────────────
@@ -377,14 +270,12 @@ def get_assessments(
     week_number: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Return assessments, optionally filtered by section or week."""
     q = db.query(Assessment)
     if section_id:
         q = q.filter(Assessment.section_id == section_id)
     if week_number:
         q = q.filter(Assessment.week_number == week_number)
     return q.order_by(Assessment.week_number, Assessment.assessment_id).all()
-
 
 @app.get("/api/assessments/{assessment_id}", response_model=AssessmentOut)
 def get_assessment(assessment_id: int, db: Session = Depends(get_db)):
@@ -393,15 +284,11 @@ def get_assessment(assessment_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Assessment not found")
     return a
 
-
 @app.post("/api/assessments", response_model=AssessmentOut, status_code=201)
 def create_assessment(body: AssessmentIn, db: Session = Depends(get_db)):
     a = Assessment(**body.model_dump())
-    db.add(a)
-    db.commit()
-    db.refresh(a)
+    db.add(a); db.commit(); db.refresh(a)
     return a
-
 
 @app.put("/api/assessments/{assessment_id}", response_model=AssessmentOut)
 def update_assessment(assessment_id: int, body: AssessmentIn, db: Session = Depends(get_db)):
@@ -410,18 +297,42 @@ def update_assessment(assessment_id: int, body: AssessmentIn, db: Session = Depe
         raise HTTPException(status_code=404, detail="Assessment not found")
     for k, v in body.model_dump().items():
         setattr(a, k, v)
-    db.commit()
-    db.refresh(a)
+    db.commit(); db.refresh(a)
     return a
 
+@app.patch("/api/assessments/{assessment_id}/grade", response_model=AssessmentOut)
+def grade_assessment(assessment_id: int, body: AssessmentGradeIn, db: Session = Depends(get_db)):
+    """
+    Enter a raw mark. e.g. got=9, out_of=10 on a 4% assessment → score = (9/10)*4 = 3.6
+    Clears grade if got=0.
+    """
+    a = db.query(Assessment).filter(Assessment.assessment_id == assessment_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if body.out_of <= 0:
+        raise HTTPException(status_code=422, detail="out_of must be greater than 0")
+    a.max_score = body.out_of
+    a.score = (body.got / body.out_of) * Decimal(str(a.weight_percent))
+    db.commit(); db.refresh(a)
+    return a
+
+@app.patch("/api/assessments/{assessment_id}/ungrade", response_model=AssessmentOut)
+def ungrade_assessment(assessment_id: int, db: Session = Depends(get_db)):
+    """Clear the grade (reset score=0, max_score=null)."""
+    a = db.query(Assessment).filter(Assessment.assessment_id == assessment_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    a.score = Decimal("0")
+    a.max_score = None
+    db.commit(); db.refresh(a)
+    return a
 
 @app.delete("/api/assessments/{assessment_id}", status_code=204)
 def delete_assessment(assessment_id: int, db: Session = Depends(get_db)):
     a = db.query(Assessment).filter(Assessment.assessment_id == assessment_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Assessment not found")
-    db.delete(a)
-    db.commit()
+    db.delete(a); db.commit()
 
 
 # ─── Events ──────────────────────────────────────────────────────────────────
@@ -433,7 +344,6 @@ def get_events(
     type:        Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """Return events, optionally filtered by week, section, or type."""
     q = db.query(Event)
     if week_number:
         q = q.filter(Event.week_number == week_number)
@@ -443,7 +353,6 @@ def get_events(
         q = q.filter(Event.type == type)
     return q.order_by(Event.start_time).all()
 
-
 @app.get("/api/events/{event_id}", response_model=EventOut)
 def get_event(event_id: int, db: Session = Depends(get_db)):
     e = db.query(Event).filter(Event.event_id == event_id).first()
@@ -451,15 +360,11 @@ def get_event(event_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Event not found")
     return e
 
-
 @app.post("/api/events", response_model=EventOut, status_code=201)
 def create_event(body: EventIn, db: Session = Depends(get_db)):
     e = Event(**body.model_dump())
-    db.add(e)
-    db.commit()
-    db.refresh(e)
+    db.add(e); db.commit(); db.refresh(e)
     return e
-
 
 @app.put("/api/events/{event_id}", response_model=EventOut)
 def update_event(event_id: int, body: EventIn, db: Session = Depends(get_db)):
@@ -468,18 +373,15 @@ def update_event(event_id: int, body: EventIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Event not found")
     for k, v in body.model_dump().items():
         setattr(e, k, v)
-    db.commit()
-    db.refresh(e)
+    db.commit(); db.refresh(e)
     return e
-
 
 @app.delete("/api/events/{event_id}", status_code=204)
 def delete_event(event_id: int, db: Session = Depends(get_db)):
     e = db.query(Event).filter(Event.event_id == event_id).first()
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
-    db.delete(e)
-    db.commit()
+    db.delete(e); db.commit()
 
 
 # ─── Weekly Knowledge ─────────────────────────────────────────────────────────
@@ -490,14 +392,12 @@ def get_knowledge(
     week_number: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Return weekly knowledge entries, optionally filtered by course or week."""
     q = db.query(WeeklyKnowledge)
     if course_id:
         q = q.filter(WeeklyKnowledge.course_id == course_id)
     if week_number:
         q = q.filter(WeeklyKnowledge.week_number == week_number)
     return q.order_by(WeeklyKnowledge.week_number).all()
-
 
 @app.get("/api/knowledge/{knowledge_id}", response_model=WeeklyKnowledgeOut)
 def get_knowledge_entry(knowledge_id: int, db: Session = Depends(get_db)):
@@ -506,15 +406,11 @@ def get_knowledge_entry(knowledge_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Entry not found")
     return k
 
-
 @app.post("/api/knowledge", response_model=WeeklyKnowledgeOut, status_code=201)
 def create_knowledge(body: WeeklyKnowledgeIn, db: Session = Depends(get_db)):
     k = WeeklyKnowledge(**body.model_dump())
-    db.add(k)
-    db.commit()
-    db.refresh(k)
+    db.add(k); db.commit(); db.refresh(k)
     return k
-
 
 @app.put("/api/knowledge/{knowledge_id}", response_model=WeeklyKnowledgeOut)
 def update_knowledge(knowledge_id: int, body: WeeklyKnowledgeIn, db: Session = Depends(get_db)):
@@ -523,15 +419,12 @@ def update_knowledge(knowledge_id: int, body: WeeklyKnowledgeIn, db: Session = D
         raise HTTPException(status_code=404, detail="Entry not found")
     for key, val in body.model_dump().items():
         setattr(k, key, val)
-    db.commit()
-    db.refresh(k)
+    db.commit(); db.refresh(k)
     return k
-
 
 @app.delete("/api/knowledge/{knowledge_id}", status_code=204)
 def delete_knowledge(knowledge_id: int, db: Session = Depends(get_db)):
     k = db.query(WeeklyKnowledge).filter(WeeklyKnowledge.knowledge_id == knowledge_id).first()
     if not k:
         raise HTTPException(status_code=404, detail="Entry not found")
-    db.delete(k)
-    db.commit()
+    db.delete(k); db.commit()
