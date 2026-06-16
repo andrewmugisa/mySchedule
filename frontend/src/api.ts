@@ -3,7 +3,7 @@ const BASE = "/api";
 export interface Week { week_number: number; start_date: string; end_date: string; is_break: boolean; }
 export interface Course { course_id: number; code: string; title: string; short_name: string; color: string; professor: string | null; credits: number | null; }
 export interface Section { section_id: number; course_id: number; section_number: string; type: string; weight_percent: string; room: string | null; day_of_week: string | null; start_time: string | null; end_time: string | null; }
-export interface Assessment { assessment_id: number; section_id: number; title: string; type: string; quiz_type: string | null; week_number: number | null; weight_percent: string; release_date: string | null; due_date: string | null; score: string; }
+export interface Assessment { assessment_id: number; section_id: number; title: string; type: string; quiz_type: string | null; week_number: number | null; weight_percent: string; release_date: string | null; due_date: string | null; score: string; max_score: string | null; }
 export interface Event { event_id: number; section_id: number | null; title: string; type: string; start_time: string; end_time: string; week_number: number | null; location: string | null; notes: string | null; is_cancelled: boolean; is_recurring: boolean; recur_days: string | null; recur_end: string | null; }
 export interface WeeklyKnowledge { knowledge_id: number; course_id: number; week_number: number; topics: { topic: string; subtopics: string[] }[]; }
 
@@ -23,6 +23,7 @@ function toYMD(d: Date): string {
 export function expandRecurring(events: Event[], weeks: Week[]): Event[] {
   const result: Event[] = [];
   const overrideKeys = new Set<string>();
+  // Non-recurring first (one-off overrides for specific dates)
   for (const ev of events) {
     if (!ev.is_recurring) {
       const dateStr = new Date(ev.start_time).toLocaleDateString("en-CA", { timeZone: "America/Toronto" });
@@ -66,22 +67,27 @@ export function expandRecurring(events: Event[], weeks: Week[]): Event[] {
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
-  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
   return res.json();
 }
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`POST ${path} → ${res.status}: ${await res.text()}`);
   return res.json();
 }
 async function put<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`PUT ${path} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`PUT ${path} → ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+async function patch<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  if (!res.ok) throw new Error(`PATCH ${path} → ${res.status}: ${await res.text()}`);
   return res.json();
 }
 async function del(path: string): Promise<void> {
   const res = await fetch(`${BASE}${path}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}`);
 }
 
 export const api = {
@@ -89,22 +95,40 @@ export const api = {
   courses:     { list: () => get<Course[]>("/courses"), get: (id: number) => get<Course>(`/courses/${id}`), create: (b: Omit<Course,"course_id">) => post<Course>("/courses", b), update: (id: number, b: Omit<Course,"course_id">) => put<Course>(`/courses/${id}`, b), delete: (id: number) => del(`/courses/${id}`) },
   sections:    { list: (course_id?: number) => get<Section[]>(`/sections${course_id ? `?course_id=${course_id}` : ""}`), get: (id: number) => get<Section>(`/sections/${id}`), create: (b: Omit<Section,"section_id">) => post<Section>("/sections", b), update: (id: number, b: Omit<Section,"section_id">) => put<Section>(`/sections/${id}`, b), delete: (id: number) => del(`/sections/${id}`) },
   assessments: {
-    list: (p?: { section_id?: number; week_number?: number }) => { const q = new URLSearchParams(); if (p?.section_id) q.set("section_id", String(p.section_id)); if (p?.week_number) q.set("week_number", String(p.week_number)); return get<Assessment[]>(`/assessments${q.toString() ? `?${q}` : ""}`); },
-    get: (id: number) => get<Assessment>(`/assessments/${id}`),
-    create: (b: Omit<Assessment,"assessment_id">) => post<Assessment>("/assessments", b),
-    update: (id: number, b: Omit<Assessment,"assessment_id">) => put<Assessment>(`/assessments/${id}`, b),
-    delete: (id: number) => del(`/assessments/${id}`),
+    list: (p?: { section_id?: number; week_number?: number }) => {
+      const q = new URLSearchParams();
+      if (p?.section_id)  q.set("section_id",  String(p.section_id));
+      if (p?.week_number) q.set("week_number",  String(p.week_number));
+      return get<Assessment[]>(`/assessments${q.toString() ? `?${q}` : ""}`);
+    },
+    get:     (id: number) => get<Assessment>(`/assessments/${id}`),
+    create:  (b: Omit<Assessment,"assessment_id">) => post<Assessment>("/assessments", b),
+    update:  (id: number, b: Omit<Assessment,"assessment_id">) => put<Assessment>(`/assessments/${id}`, b),
+    grade:   (id: number, got: number, out_of: number) => patch<Assessment>(`/assessments/${id}/grade`, { got, out_of }),
+    ungrade: (id: number) => patch<Assessment>(`/assessments/${id}/ungrade`),
+    delete:  (id: number) => del(`/assessments/${id}`),
   },
   events: {
-    list: (p?: { week_number?: number; section_id?: number; type?: string }) => { const q = new URLSearchParams(); if (p?.week_number) q.set("week_number", String(p.week_number)); if (p?.section_id) q.set("section_id", String(p.section_id)); if (p?.type) q.set("type", p.type); return get<Event[]>(`/events${q.toString() ? `?${q}` : ""}`); },
-    get: (id: number) => get<Event>(`/events/${id}`),
+    list: (p?: { week_number?: number; section_id?: number; type?: string }) => {
+      const q = new URLSearchParams();
+      if (p?.week_number) q.set("week_number", String(p.week_number));
+      if (p?.section_id)  q.set("section_id",  String(p.section_id));
+      if (p?.type)        q.set("type",         p.type);
+      return get<Event[]>(`/events${q.toString() ? `?${q}` : ""}`);
+    },
+    get:    (id: number) => get<Event>(`/events/${id}`),
     create: (b: Omit<Event,"event_id">) => post<Event>("/events", b),
     update: (id: number, b: Omit<Event,"event_id">) => put<Event>(`/events/${id}`, b),
     delete: (id: number) => del(`/events/${id}`),
   },
   knowledge: {
-    list: (p?: { course_id?: number; week_number?: number }) => { const q = new URLSearchParams(); if (p?.course_id) q.set("course_id", String(p.course_id)); if (p?.week_number) q.set("week_number", String(p.week_number)); return get<WeeklyKnowledge[]>(`/knowledge${q.toString() ? `?${q}` : ""}`); },
-    get: (id: number) => get<WeeklyKnowledge>(`/knowledge/${id}`),
+    list: (p?: { course_id?: number; week_number?: number }) => {
+      const q = new URLSearchParams();
+      if (p?.course_id)   q.set("course_id",   String(p.course_id));
+      if (p?.week_number) q.set("week_number",  String(p.week_number));
+      return get<WeeklyKnowledge[]>(`/knowledge${q.toString() ? `?${q}` : ""}`);
+    },
+    get:    (id: number) => get<WeeklyKnowledge>(`/knowledge/${id}`),
     create: (b: Omit<WeeklyKnowledge,"knowledge_id">) => post<WeeklyKnowledge>("/knowledge", b),
     update: (id: number, b: Omit<WeeklyKnowledge,"knowledge_id">) => put<WeeklyKnowledge>(`/knowledge/${id}`, b),
     delete: (id: number) => del(`/knowledge/${id}`),
