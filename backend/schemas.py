@@ -69,12 +69,19 @@ class AssessmentIn(BaseModel):
     release_date:   Optional[datetime] = None
     due_date:       Optional[datetime] = None
     score:          Optional[Decimal]  = Decimal("0")
+    max_score:      Optional[Decimal]  = None  # "out of" value e.g. 10
 
 class AssessmentOut(AssessmentIn):
     assessment_id: int
 
     class Config:
         from_attributes = True
+
+
+# Grade input: what you got vs what it was out of
+class AssessmentGradeIn(BaseModel):
+    got:      Decimal   # marks received, e.g. 9
+    out_of:   Decimal   # total marks, e.g. 10
 
 
 # ─── Event ───────────────────────────────────────────────────────────────────
