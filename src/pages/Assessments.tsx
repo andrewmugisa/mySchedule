@@ -1,96 +1,79 @@
 /**
  * Assessments.tsx — All assessments page
- * Stats bar, filter chips by course/status, grouped by week
+ * v0 design adapted to Vite + React Router + real API
+ * - Stats bar, filter chips, grouped by week descending
+ * - Checkbox to toggle score
  */
 
 import { useEffect, useState, useMemo } from "react";
 import { api, Assessment, Course, Section, Week } from "../api";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDue(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-CA", {
+  return new Date(iso).toLocaleDateString("en-CA", {
     weekday: "short", month: "short", day: "numeric",
     hour: "numeric", minute: "2-digit", timeZone: "America/Toronto",
   });
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Assessments() {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [courses,     setCourses]     = useState<Course[]>([]);
   const [sections,    setSections]    = useState<Section[]>([]);
   const [weeks,       setWeeks]       = useState<Week[]>([]);
+  const [loading,     setLoading]     = useState(true);
 
-  // Filters
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
   const [courseFilter, setCourseFilter] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([
-      api.assessments.list(),
-      api.courses.list(),
-      api.sections.list(),
-      api.weeks.list(),
+      api.assessments.list(), api.courses.list(),
+      api.sections.list(), api.weeks.list(),
     ]).then(([as, co, se, wk]) => {
-      setAssessments(as);
-      setCourses(co);
-      setSections(se);
-      setWeeks(wk);
+      setAssessments(as); setCourses(co); setSections(se); setWeeks(wk);
+      setLoading(false);
     }).catch(console.error);
   }, []);
 
-  const courseMap  = useMemo(() => Object.fromEntries(courses.map(c => [c.course_id, c])),   [courses]);
+  const courseMap  = useMemo(() => Object.fromEntries(courses.map(c  => [c.course_id,  c])),  [courses]);
   const sectionMap = useMemo(() => Object.fromEntries(sections.map(s => [s.section_id, s])), [sections]);
-  const weekMap    = useMemo(() => Object.fromEntries(weeks.map(w => [w.week_number, w])),   [weeks]);
+  const weekMap    = useMemo(() => Object.fromEntries(weeks.map(w    => [w.week_number, w])), [weeks]);
 
-  // Toggle score (mark done / undone)
   async function toggleScore(a: Assessment) {
     const newScore = parseFloat(a.score) > 0 ? "0" : a.weight_percent;
-    const sec = sectionMap[a.section_id];
-    await api.assessments.update(a.assessment_id, {
-      section_id:     a.section_id,
-      title:          a.title,
-      type:           a.type,
-      quiz_type:      a.quiz_type,
-      week_number:    a.week_number,
-      weight_percent: a.weight_percent,
-      release_date:   a.release_date,
-      due_date:       a.due_date,
-      score:          newScore,
-    } as any);
+    await api.assessments.update(a.assessment_id, { ...a, score: newScore } as any);
     setAssessments(prev => prev.map(x =>
       x.assessment_id === a.assessment_id ? { ...x, score: String(newScore) } : x
     ));
   }
 
   // Stats
-  const total     = assessments.length;
-  const completed = assessments.filter(a => parseFloat(a.score) > 0).length;
-  const pending   = assessments.filter(a => parseFloat(a.score) === 0).length;
+  const total      = assessments.length;
+  const completed  = assessments.filter(a => parseFloat(a.score) > 0).length;
+  const pending    = assessments.filter(a => parseFloat(a.score) === 0).length;
   const gradeSoFar = useMemo(() => {
-    const earned = assessments.reduce((s, a) => s + parseFloat(a.score), 0);
+    const earned   = assessments.reduce((s, a) => s + parseFloat(a.score), 0);
     const possible = assessments.reduce((s, a) => s + parseFloat(a.weight_percent), 0);
     return possible > 0 ? Math.round((earned / possible) * 100) : 0;
   }, [assessments]);
 
-  // Filtered assessments
-  const filtered = useMemo(() => {
-    return assessments.filter(a => {
-      const done = parseFloat(a.score) > 0;
-      if (statusFilter === "pending"   && done)  return false;
-      if (statusFilter === "completed" && !done) return false;
-      if (courseFilter !== null) {
-        const sec = sectionMap[a.section_id];
-        if (!sec || sec.course_id !== courseFilter) return false;
-      }
-      return true;
-    });
-  }, [assessments, statusFilter, courseFilter, sectionMap]);
+  // Filtered
+  const filtered = useMemo(() => assessments.filter(a => {
+    const done = parseFloat(a.score) > 0;
+    if (statusFilter === "pending"   && done)  return false;
+    if (statusFilter === "completed" && !done) return false;
+    if (courseFilter !== null) {
+      const sec = sectionMap[a.section_id];
+      if (!sec || sec.course_id !== courseFilter) return false;
+    }
+    return true;
+  }), [assessments, statusFilter, courseFilter, sectionMap]);
 
-  // Group by week (descending — most recent first for completed, ascending for pending)
+  // Group by week descending
   const grouped = useMemo(() => {
     const map = new Map<number, Assessment[]>();
     for (const a of filtered) {
@@ -104,98 +87,95 @@ export default function Assessments() {
   function weekLabel(wn: number): string {
     const w = weekMap[wn];
     if (!w) return `Week ${wn}`;
-    const start = new Date(w.start_date).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
-    const end   = new Date(w.end_date).toLocaleDateString("en-CA",   { month: "short", day: "numeric" });
-    return `Week ${wn} · ${start}–${end}`;
+    const s = new Date(w.start_date).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+    const e = new Date(w.end_date).toLocaleDateString("en-CA",   { month: "short", day: "numeric" });
+    return `Week ${wn} · ${s}–${e}`;
   }
 
-  function weekDone(wn: number): boolean {
+  function weekIsPast(wn: number): boolean {
     const w = weekMap[wn];
-    if (!w) return false;
-    const today = new Date().toISOString().slice(0, 10);
-    return w.end_date < today;
-  }
-
-  function assessmentSubtitle(a: Assessment): string {
-    const sec    = sectionMap[a.section_id];
-    const course = sec ? courseMap[sec.course_id] : null;
-    const sectionTitle = `${course?.short_name ?? ""} ${sec?.type === "LAB" ? "Lab" : "Theory"}`;
-    if (a.due_date) return `${sectionTitle} · ${fmtDue(a.due_date)}`;
-    return `${sectionTitle} · during class`;
+    return !!w && w.end_date < new Date().toISOString().slice(0, 10);
   }
 
   function typeLabel(a: Assessment): string {
-    if (a.type === "QUIZ" && a.quiz_type) return a.quiz_type === "PRE_LAB" ? "Pre-lab quiz" : a.quiz_type === "POP" ? "Pop quiz" : "Quiz";
+    if (a.type === "QUIZ" && a.quiz_type) {
+      return a.quiz_type === "PRE_LAB" ? "Pre-lab quiz" : a.quiz_type === "POP" ? "Pop quiz" : "Quiz";
+    }
     const map: Record<string, string> = {
       LAB: "Lab", ASSIGNMENT: "Assignment", MIDTERM: "Midterm",
-      FINAL: "Final", PROJECT: "Project", PRESENTATION: "Presentation",
-      QUIZ: "Quiz", LAB_EXAM: "Lab exam",
+      FINAL: "Final", PROJECT: "Project", QUIZ: "Quiz",
+      LAB_EXAM: "Lab exam", PRESENTATION: "Presentation",
     };
     return map[a.type] ?? a.type;
   }
 
-  function statusBadge(a: Assessment) {
-    const done = parseFloat(a.score) > 0;
-    if (done) return <span className="text-xs text-green-400">Done · {a.score}%</span>;
-    const now = new Date();
-    if (a.due_date && new Date(a.due_date) < now) {
-      return <span className="text-xs text-red-400">Overdue</span>;
-    }
-    return <span className="text-xs text-orange-400">Pending</span>;
+  function subtitle(a: Assessment): string {
+    const sec    = sectionMap[a.section_id];
+    const course = sec ? courseMap[sec.course_id] : null;
+    const base   = `${course?.short_name ?? ""} ${sec?.type === "LAB" ? "Lab" : "Theory"}`;
+    if (a.due_date) return `${base} · ${fmtDue(a.due_date)}`;
+    return `${base} · during class`;
   }
 
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-3)" }}>Loading…</div>
+  );
+
   return (
-    <div className="px-6 py-5 max-w-3xl">
+    <div style={{ padding: "28px 32px 60px", maxWidth: 860 }}>
+
       {/* Header */}
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <div className="text-xs text-[#666] mb-1">All courses</div>
-          <h1 className="text-3xl font-bold text-white">Assessments</h1>
-        </div>
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>All courses</div>
+        <h1 style={{ fontSize: 36, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.02em" }}>Assessments</h1>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
         {[
-          { label: "Total assessments", value: total,      color: "text-white" },
-          { label: "Completed",         value: completed,  color: "text-green-400" },
-          { label: "Pending",           value: pending,    color: "text-orange-400" },
-          { label: "Grade so far",      value: `${gradeSoFar}%`, color: "text-[#6366f1]" },
+          { label: "Total",       value: total,           color: "var(--text)" },
+          { label: "Completed",   value: completed,       color: "var(--green)" },
+          { label: "Pending",     value: pending,         color: "var(--orange)" },
+          { label: "Grade so far",value: `${gradeSoFar}%`,color: "#818cf8" },
         ].map(s => (
-          <div key={s.label} className="bg-[#242424] rounded-xl p-4 border border-[#2e2e2e]">
-            <div className="text-xs text-[#555] mb-1">{s.label}</div>
-            <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+          <div key={s.label} className="card2" style={{ padding: "16px 20px" }}>
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>{s.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Filter chips */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {/* Status */}
+      {/* Filters */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
         {(["all", "pending", "completed"] as const).map(f => (
           <button
             key={f}
             onClick={() => setStatusFilter(f)}
-            className={`px-3 py-1 rounded-full text-sm border transition-colors capitalize ${
-              statusFilter === f
-                ? "bg-[#6366f1] border-[#6366f1] text-white"
-                : "border-[#333] text-[#888] hover:text-white"
-            }`}
+            className="btn"
+            style={{
+              padding: "5px 14px",
+              background: statusFilter === f ? "var(--accent)" : "transparent",
+              color: statusFilter === f ? "#fff" : "var(--text-2)",
+              border: `1px solid ${statusFilter === f ? "var(--accent)" : "var(--border)"}`,
+              borderRadius: 99,
+              fontSize: 12,
+            }}
           >
             {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
-
-        {/* Course filters */}
         {courses.map(c => (
           <button
             key={c.course_id}
             onClick={() => setCourseFilter(courseFilter === c.course_id ? null : c.course_id)}
-            className="px-3 py-1 rounded-full text-sm border transition-colors"
+            className="btn"
             style={{
-              borderColor: courseFilter === c.course_id ? c.color : c.color + "55",
-              color:        c.color,
-              backgroundColor: courseFilter === c.course_id ? c.color + "22" : "transparent",
+              padding: "5px 14px",
+              background: courseFilter === c.course_id ? c.color + "22" : "transparent",
+              color: c.color,
+              border: `1px solid ${courseFilter === c.course_id ? c.color : c.color + "55"}`,
+              borderRadius: 99,
+              fontSize: 12,
             }}
           >
             {c.short_name}
@@ -204,70 +184,78 @@ export default function Assessments() {
       </div>
 
       {/* Grouped list */}
-      <div className="flex flex-col gap-6">
+      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
         {grouped.map(([wn, items]) => (
           <div key={wn}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-sm text-[#666]">{weekLabel(wn)}</span>
-              {weekDone(wn) && (
-                <span className="text-xs text-[#444] px-2 py-0.5 rounded-full border border-[#333]">
-                  completed
-                </span>
+            {/* Week header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <span style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 500 }}>{weekLabel(wn)}</span>
+              {weekIsPast(wn) && (
+                <span style={{ fontSize: 10, color: "var(--text-4)", padding: "2px 8px", borderRadius: 99, border: "1px solid var(--border-dim)" }}>completed</span>
               )}
             </div>
-            <div className="flex flex-col gap-2">
+
+            {/* Items */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {items.map(a => {
                 const sec    = sectionMap[a.section_id];
                 const course = sec ? courseMap[sec.course_id] : null;
                 const done   = parseFloat(a.score) > 0;
+                const now    = new Date();
+                const overdue = !done && a.due_date && new Date(a.due_date) < now;
 
                 return (
                   <div
                     key={a.assessment_id}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${
-                      done ? "border-[#2a2a2a] bg-[#1e1e1e]" : "border-[#2e2e2e] bg-[#242424]"
-                    }`}
+                    className="card"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      padding: "12px 16px",
+                      background: done ? "var(--bg)" : "var(--bg-card)",
+                      borderColor: done ? "var(--border-dim)" : "var(--border-dim)",
+                      opacity: done ? 0.7 : 1,
+                      transition: "opacity 0.2s",
+                    }}
                   >
-                    {/* Course color bar */}
-                    <div
-                      className="w-1 self-stretch rounded-full flex-shrink-0"
-                      style={{ backgroundColor: course?.color ?? "#444" }}
-                    />
+                    {/* Color bar */}
+                    <div style={{ width: 3, alignSelf: "stretch", borderRadius: 99, background: course?.color ?? "var(--border)", flexShrink: 0 }} />
 
                     {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className={`text-sm font-semibold truncate ${done ? "text-[#666]" : "text-white"}`}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: done ? "var(--text-3)" : "var(--text)", textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {a.title}
                       </div>
-                      <div className="text-xs text-[#555] truncate">{assessmentSubtitle(a)}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-4)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {subtitle(a)}
+                      </div>
                     </div>
 
                     {/* Type badge */}
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: course?.color + "22", color: course?.color }}
-                    >
+                    <span style={{ fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 99, background: (course?.color ?? "#888") + "18", border: `1px solid ${(course?.color ?? "#888")}30`, color: course?.color ?? "#888", flexShrink: 0 }}>
                       {typeLabel(a)}
                     </span>
 
                     {/* Weight */}
-                    <span className="text-xs text-[#555] w-8 text-right flex-shrink-0">
+                    <span style={{ fontSize: 12, color: "var(--text-3)", width: 38, textAlign: "right", flexShrink: 0 }}>
                       {a.weight_percent}%
                     </span>
 
                     {/* Status */}
-                    <div className="w-20 text-right flex-shrink-0">{statusBadge(a)}</div>
+                    <span style={{ fontSize: 11, fontWeight: 500, width: 72, textAlign: "right", flexShrink: 0, color: done ? "var(--green)" : overdue ? "var(--red)" : "var(--orange)" }}>
+                      {done ? `Done · ${a.score}%` : overdue ? "Overdue" : "Pending"}
+                    </span>
 
                     {/* Checkbox */}
                     <button
                       onClick={() => toggleScore(a)}
-                      className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
-                        done
-                          ? "bg-green-500 border-green-500"
-                          : "border-[#444] hover:border-[#666]"
-                      }`}
+                      className={`checkbox${done ? " checked" : ""}`}
+                      title={done ? "Mark as pending" : "Mark as done"}
                     >
-                      {done && <span className="text-white text-xs">✓</span>}
+                      {done && (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      )}
                     </button>
                   </div>
                 );
@@ -275,9 +263,8 @@ export default function Assessments() {
             </div>
           </div>
         ))}
-
         {grouped.length === 0 && (
-          <p className="text-[#555] text-sm">No assessments match the current filters.</p>
+          <p style={{ fontSize: 13, color: "var(--text-4)" }}>No assessments match the current filters.</p>
         )}
       </div>
     </div>
